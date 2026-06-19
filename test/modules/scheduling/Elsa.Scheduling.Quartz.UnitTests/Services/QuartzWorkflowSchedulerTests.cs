@@ -134,6 +134,24 @@ public class QuartzWorkflowSchedulerTests
         scheduler.Verify(s => s.ScheduleJob(It.IsAny<ITrigger>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task ScheduleCronAsync_WhenTriggerScheduledConcurrentlyViaSqlStore_SwallowsWrappedPersistenceException()
+    {
+        // Arrange: SQL-backed Quartz stores (AdoJobStore) can wrap the duplicate-trigger error in a
+        // JobPersistenceException with an inner ObjectAlreadyExistsException. Verify that ScheduleJobAsync
+        // handles this wrapping symmetrically with EnsureJobAsync.
+        var scheduler = new Mock<global::Quartz.IScheduler>();
+        scheduler.Setup(s => s.CheckExists(It.IsAny<JobKey>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        scheduler.Setup(s => s.ScheduleJob(It.IsAny<ITrigger>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new JobPersistenceException("trigger already exists", new ObjectAlreadyExistsException("duplicate")));
+
+        var sut = CreateScheduler(scheduler, out _);
+        var request = CreateNewRequest();
+
+        // Act + Assert: does not throw.
+        await sut.ScheduleCronAsync("task-1", request, "0 0/5 * * * ?");
+    }
+
     private static QuartzWorkflowScheduler CreateScheduler(Mock<global::Quartz.IScheduler> scheduler, out Mock<global::Quartz.ISchedulerFactory> factory, string? tenantId = null)
     {
         factory = new Mock<global::Quartz.ISchedulerFactory>();

@@ -126,6 +126,12 @@ public class QuartzWorkflowScheduler(ISchedulerFactory schedulerFactoryFactory, 
             // Note: To update an existing trigger, callers should first use UnscheduleAsync before scheduling the new trigger.
             await scheduler.ScheduleJob(trigger, cancellationToken);
         }
+        catch (JobPersistenceException e) when (e.InnerException is ObjectAlreadyExistsException)
+        {
+            // SQL-backed Quartz stores (AdoJobStore) wrap the duplicate-trigger error in a JobPersistenceException.
+            // In clustered mode, this is an expected race condition when multiple pods attempt to schedule the same trigger.
+            logger.LogDebug("Trigger {TriggerKey} already exists (wrapped), skipping scheduling. This is expected in clustered deployments during concurrent operations", trigger.Key);
+        }
         catch (ObjectAlreadyExistsException)
         {
             // Trigger already exists. In clustered scenarios, this is an expected race condition
